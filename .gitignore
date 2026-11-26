@@ -1,0 +1,18 @@
+# Сборка, тестовые картинки и локальные настройки IDE.
+/build/
+/build-*/
+/cmake-build-*/
+/out/
+/tmp/
+/.idea/
+/CMakeUserPresets.json
+__pycache__/
+*.pyc
+*.exe
+*.o
+*.obj
+*.dll
+*.zip
+input.bin
+output.bmp
+output.txt
