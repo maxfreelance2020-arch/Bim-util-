@@ -6,7 +6,7 @@ set(CMAKE_C_EXTENSIONS OFF)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
 # Каждая цель — отдельная задача. Выберите нужную цель запуска в CLion.
-set(BMP_TASKS I1A_info I1B_copy I2A_invert I2B_gray I2C_bright I2D_threshold)
+set(BMP_TASKS I1A_info I1B_copy I2A_invert I2B_gray I2C_bright I2D_threshold I2E_sepia)
 foreach(task IN LISTS BMP_TASKS)
     add_executable(${task} solutions/${task}.c)
     if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
@@ -51,7 +51,7 @@ if(BUILD_TESTING)
         TIMEOUT 120
         ENVIRONMENT "PYTHONUTF8=1")
 
-    # Команда собирает все шесть программ, затем запускает CTest.
+    # Команда собирает все программы, затем запускает CTest.
     add_custom_target(check
         COMMAND "${CMAKE_CTEST_COMMAND}" --verbose --output-on-failure -C "$<CONFIG>"
         DEPENDS ${BMP_TASKS}

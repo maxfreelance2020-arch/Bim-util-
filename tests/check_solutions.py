@@ -1,10 +1,11 @@
-"""Локальная проверка шести решений. В CATS этот файл отправлять не нужно.
+"""Локальная проверка BMP-решений.
 
 Только стандартная библиотека Python 3. Тесты сами создают BMP, включая
 верхний порядок строк, расширенные заголовки и ненулевое выравнивание.
 """
 
 import argparse
+from decimal import Decimal, ROUND_HALF_UP
 import json
 import os
 from pathlib import Path
@@ -24,12 +25,28 @@ TASKS = {
     "gray": "I2B_gray",
     "bright": "I2C_bright",
     "threshold": "I2D_threshold",
+    "sepia": "I2E_sepia",
 }
 COLORS = [
     (0, 0, 0), (255, 255, 255), (255, 0, 0), (0, 255, 0),
     (0, 0, 255), (255, 255, 0), (200, 100, 50), (250, 128, 3),
     (127, 127, 127), (128, 128, 128), (10, 13, 26), (1, 254, 255),
 ]
+SEPIA_WEIGHTS = [
+    (Decimal("0.393"), Decimal("0.769"), Decimal("0.189")),
+    (Decimal("0.349"), Decimal("0.686"), Decimal("0.168")),
+    (Decimal("0.272"), Decimal("0.534"), Decimal("0.131")),
+]
+
+
+def sepia_reference(rgb):
+    """Эталон по десятичным формулам условия с округлением 0.5 вверх."""
+    result = []
+    for weights in SEPIA_WEIGHTS:
+        value = sum(weight * channel for weight, channel in zip(weights, rgb))
+        value = min(Decimal(255), value)
+        result.append(int(value.quantize(Decimal(1), rounding=ROUND_HALF_UP)))
+    return tuple(result)
 
 
 def make_bmp(width, height, *, top_down=False, dib_size=40, gap=b"",
@@ -127,6 +144,11 @@ def check_result(original, result, command, parameter=None, *, repeated=False):
                 assert new in (b"\x00\x00\x00", b"\xff\xff\xff")
                 if abs(luminance - parameter) > 1.000000001:
                     assert (new[0] == 255) == (luminance >= parameter)
+            elif command == "sepia":
+                expected = sepia_reference((red, green, blue))
+                actual = tuple(reversed(new))
+                assert all(abs(a - e) <= 1 for a, e in zip(actual, expected)), \
+                    f"Неверная сепия: RGB {actual}, эталон {expected}"
 
 
 def find_compiler(explicit):
@@ -178,9 +200,9 @@ def main():
             raise AssertionError(f"Программа не найдена: {executable}. Сначала соберите проект.")
         programs[command] = executable
     if args.bin_dir:
-        print("PROGRAMS: using all 6 executables built by CMake", flush=True)
+        print(f"PROGRAMS: using all {len(TASKS)} executables built by CMake", flush=True)
     else:
-        print("COMPILE: 6/6, warnings treated as errors", flush=True)
+        print(f"COMPILE: {len(TASKS)}/{len(TASKS)}, warnings treated as errors", flush=True)
 
     counts = {command: 0 for command in TASKS}
 
@@ -233,7 +255,7 @@ def main():
         make_bmp(305, 183, top_down=True, seed=305),
     ])
     for bmp in fixtures:
-        for command in ("info", "copy", "invert", "gray"):
+        for command in ("info", "copy", "invert", "gray", "sepia"):
             run(command, bmp)
         for change in (-255, -254, -10, 0, 10, 254, 255):
             run("bright", bmp, change)
@@ -243,13 +265,13 @@ def main():
           flush=True)
 
     cli_fixture = make_bmp(7, 5, top_down=True, dib_size=124, gap=b"gap")
-    for command in ("info", "copy", "invert", "gray"):
+    for command in ("info", "copy", "invert", "gray", "sepia"):
         run(command, cli_fixture, cli=True)
     for command, values in (("bright", (-255, 0, 10, 255)),
                             ("threshold", (0, 128, 255))):
         for parameter in values:
             run(command, cli_fixture, parameter, cli=True)
-    print("CLI: all six commands, paths containing spaces and Cyrillic OK", flush=True)
+    print(f"CLI: all {len(TASKS)} commands, paths containing spaces and Cyrillic OK", flush=True)
 
     # Свойства помогают поймать ошибки, которые не видны на одном примере.
     for bmp in fixtures[:9]:
@@ -272,11 +294,47 @@ def main():
     assert black_white[54 + 2 * 3:54 + 3 * 3] == b"\x00\x00\x00"
     assert black_white[54 + 5 * 3:54 + 6 * 3] == b"\xff\xff\xff"
 
+    # Отдельно проверяем округление 0.5 и границы насыщения красного/зелёного.
+    sepia_pixels = [
+        (0, 0, 0),
+        (255, 255, 255),
+        (255, 0, 0),
+        (0, 255, 0),
+        (0, 0, 255),
+        (200, 100, 50),
+        (0, 2, 58),
+        (38, 255, 230),
+        (45, 247, 248),
+        (39, 254, 232),
+        (54, 246, 236),
+        (63, 245, 224),
+        (0, 2, 96),
+        (119, 248, 255),
+        (118, 249, 253),
+        (117, 250, 251),
+        (136, 244, 239),
+        (112, 254, 251),
+        (0, 2, 72),
+    ]
+    sepia_source = bytearray(make_bmp(len(sepia_pixels), 1))
+    for index, rgb in enumerate(sepia_pixels):
+        position = 54 + index * 3
+        sepia_source[position:position + 3] = bytes(reversed(rgb))
+    sepia_result, _ = run("sepia", bytes(sepia_source))
+    for index, rgb in enumerate(sepia_pixels):
+        position = 54 + index * 3
+        actual = tuple(reversed(sepia_result[position:position + 3]))
+        assert actual == sepia_reference(rgb), f"Ошибка округления/ограничения сепии: {rgb}"
+    assert tuple(reversed(sepia_result[57:60])) == (255, 255, 239)
+    print("SEPIA: white, primary colors, original channels, half-up rounding, saturation OK",
+          flush=True)
+
     invalid_count = 0
     for command, contents in (
         ("info", b"info\nBM"), ("copy", b""),
         ("invert", b"invert\n" + example[:-1]),
         ("gray", b"gray\nBM"),
+        ("sepia", b"sepia\nBM"),
         ("bright", b"bright 256\n" + example),
         ("bright", b"bright -256\n" + example),
         ("threshold", b"threshold -1\n" + example),
@@ -309,7 +367,7 @@ def main():
         result, _ = run(command, demo, parameter, cli=True)
         name = "info.txt" if command == "info" else command + ".bmp"
         (demo_dir / name).write_bytes(result)
-    print("DEMO: original.bmp and all six results saved", flush=True)
+    print(f"DEMO: original.bmp and all {len(TASKS)} results saved", flush=True)
 
     report = {
         "compiler": compiler,
